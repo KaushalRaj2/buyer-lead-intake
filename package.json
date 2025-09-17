@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "next dev --turbopack",
     "build": "next build --turbopack",
+    "build-no-lint": "next build --turbopack --no-lint",
     "start": "next start",
     "lint": "next lint --fix",
     "db:generate": "drizzle-kit generate",
