@@ -1,4 +1,4 @@
-// src/app/api/buyers/route.ts - Enhanced Error Handling
+// src/app/api/buyers/route.ts - Fixed with Better Error Handling and Debug Logging
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { buyers, buyerHistory, users } from '@/db/schema'
@@ -12,7 +12,7 @@ async function getUserFromRequest(request: NextRequest) {
   const userRole = request.headers.get('x-user-role')
   const userId = request.headers.get('x-user-id')
   
-  console.log('Headers received:', { userEmail, userRole, userId })
+  console.log('🔍 Headers received:', { userEmail, userRole, userId: !!userId })
   
   if (!userEmail) {
     throw new Error('User email not provided in headers. Please ensure you are logged in.')
@@ -20,7 +20,7 @@ async function getUserFromRequest(request: NextRequest) {
 
   // If we have a user ID and it looks like a UUID, use it directly
   if (userId && userId !== '' && userId.length > 10) {
-    console.log('Using provided user ID:', userId)
+    console.log('✅ Using provided user ID:', userId)
     return {
       id: userId,
       email: userEmail,
@@ -29,7 +29,7 @@ async function getUserFromRequest(request: NextRequest) {
   }
 
   // Otherwise, look up user by email
-  console.log('Looking up user by email:', userEmail)
+  console.log('🔍 Looking up user by email:', userEmail)
   try {
     const user = await db.select({
       id: users.id,
@@ -43,14 +43,14 @@ async function getUserFromRequest(request: NextRequest) {
       throw new Error(`User not found with email: ${userEmail}. Please register first.`)
     }
 
-    console.log('Found user from database:', user[0])
+    console.log('✅ Found user from database:', { id: user[0].id, email: user[0].email, role: user[0].role })
     return {
       id: user[0].id,
       email: user[0].email,
       role: user[0].role
     }
   } catch (dbError) {
-    console.error('Database lookup failed:', dbError)
+    console.error('💥 Database lookup failed:', dbError)
     throw new Error(`Failed to find user: ${userEmail}. Database error: ${dbError instanceof Error ? dbError.message : 'Unknown error'}`)
   }
 }
@@ -58,6 +58,8 @@ async function getUserFromRequest(request: NextRequest) {
 // GET /api/buyers - List buyers (all can read)
 export async function GET(request: NextRequest) {
   try {
+    console.log('🔍 GET /api/buyers called')
+    
     const { searchParams } = new URL(request.url)
     const page = parseInt(searchParams.get('page') || '1')
     const limit = parseInt(searchParams.get('limit') || '10')
@@ -66,70 +68,131 @@ export async function GET(request: NextRequest) {
     const status = searchParams.get('status') || ''
     const propertyType = searchParams.get('propertyType') || ''
 
-    console.log('API called with params:', { page, limit, search, city, status, propertyType })
+    console.log('📋 API called with params:', { page, limit, search, city, status, propertyType })
 
-    // Build where conditions array
-    const conditions = []
-    
-    if (search) {
-      conditions.push(
-        or(
-          ilike(buyers.fullName, `%${search}%`),
-          ilike(buyers.phone, `%${search}%`),
-          ilike(buyers.email, `%${search}%`)
-        )
-      )
+    // Get current user for role-based access
+    let currentUser = null
+    try {
+      currentUser = await getUserFromRequest(request)
+      console.log('👤 Current user:', { id: currentUser.id, email: currentUser.email, role: currentUser.role })
+    } catch (authError) {
+      console.error('⚠️ Authentication failed, returning empty results:', authError)
+      return NextResponse.json({
+        buyers: [],
+        pagination: {
+          page: 1,
+          limit: 10,
+          total: 0,
+          pages: 0
+        },
+        error: 'Authentication required'
+      })
     }
 
-    if (city) {
-      conditions.push(eq(buyers.city, city as any))
-    }
-    
-    if (status) {
-      conditions.push(eq(buyers.status, status as any))
-    }
-    
-    if (propertyType) {
-      conditions.push(eq(buyers.propertyType, propertyType as any))
-    }
+    try {
+      console.log('🔌 Attempting database query...')
 
-    // Combine conditions with AND
-    const whereClause = conditions.length > 0 ? and(...conditions) : undefined
-
-    // Get buyers with pagination
-    const offset = (page - 1) * limit
-    
-    const result = await db
-      .select()
-      .from(buyers)
-      .where(whereClause)
-      .orderBy(desc(buyers.updatedAt))
-      .limit(limit)
-      .offset(offset)
-
-    // Get total count for pagination
-    const totalResult = await db
-      .select({ count: count() })
-      .from(buyers)
-      .where(whereClause)
-
-    const total = totalResult[0]?.count || 0
-
-    console.log('Database returned:', { resultCount: result.length, total })
-
-    return NextResponse.json({
-      buyers: result,
-      pagination: {
-        page,
-        limit,
-        total,
-        pages: Math.ceil(total / limit)
+      // Build where conditions array
+      const conditions = []
+      
+      // Role-based access control
+      if (currentUser && currentUser.role === 'user') {
+        conditions.push(eq(buyers.ownerId, currentUser.id))
+        console.log('🔒 User role: filtering by ownerId =', currentUser.id)
+      } else if (currentUser && currentUser.role === 'admin') {
+        console.log('👑 Admin role: accessing all buyers')
       }
-    })
+      
+      if (search) {
+        conditions.push(
+          or(
+            ilike(buyers.fullName, `%${search}%`),
+            ilike(buyers.phone, `%${search}%`),
+            ilike(buyers.email, `%${search}%`)
+          )
+        )
+        console.log('🔍 Search filter applied:', search)
+      }
+
+      if (city && city !== 'All Cities') {
+        conditions.push(eq(buyers.city, city as any))
+        console.log('🏙️ City filter applied:', city)
+      }
+      
+      if (status && status !== 'All Statuses') {
+        conditions.push(eq(buyers.status, status as any))
+        console.log('📊 Status filter applied:', status)
+      }
+      
+      if (propertyType && propertyType !== 'All Types') {
+        conditions.push(eq(buyers.propertyType, propertyType as any))
+        console.log('🏠 Property type filter applied:', propertyType)
+      }
+
+      // Combine conditions with AND
+      const whereClause = conditions.length > 0 ? and(...conditions) : undefined
+
+      // Get buyers with pagination
+      const offset = (page - 1) * limit
+      
+      const result = await db
+        .select()
+        .from(buyers)
+        .where(whereClause)
+        .orderBy(desc(buyers.updatedAt))
+        .limit(limit)
+        .offset(offset)
+
+      console.log('✅ Buyers query successful, found:', result.length)
+
+      // Get total count for pagination
+      const totalResult = await db
+        .select({ count: count() })
+        .from(buyers)
+        .where(whereClause)
+
+      const total = totalResult[0]?.count || 0
+      console.log('📊 Total buyers:', total)
+
+      return NextResponse.json({
+        buyers: result,
+        pagination: {
+          page,
+          limit,
+          total,
+          pages: Math.ceil(total / limit)
+        }
+      })
+
+    } catch (dbError) {
+      console.error('💥 Database error:', dbError)
+      console.error('Database error message:', dbError instanceof Error ? dbError.message : 'Unknown')
+      
+      // Return empty results as fallback
+      return NextResponse.json({
+        buyers: [],
+        pagination: {
+          page: 1,
+          limit: 10,
+          total: 0,
+          pages: 0
+        },
+        fallback: true,
+        error: 'Database connection failed - showing empty results'
+      })
+    }
+
   } catch (error) {
-    console.error('Error fetching buyers:', error)
+    console.error('💥 GET buyers error:', error)
+    console.error('Error stack:', error instanceof Error ? error.stack : 'No stack')
+    
     return NextResponse.json(
-      { error: 'Failed to fetch buyers', details: error instanceof Error ? error.message : 'Unknown error' },
+      { 
+        error: 'Failed to fetch buyers', 
+        details: error instanceof Error ? error.message : 'Unknown error',
+        buyers: [],
+        pagination: { page: 1, limit: 10, total: 0, pages: 0 }
+      },
       { status: 500 }
     )
   }
@@ -138,12 +201,23 @@ export async function GET(request: NextRequest) {
 // POST /api/buyers - Create new buyer (assigns to current user)
 export async function POST(request: NextRequest) {
   try {
+    console.log('🔍 POST /api/buyers called')
+    
     const body = await request.json()
-    console.log('Creating buyer with data:', body)
+    console.log('📝 Creating buyer with data:', { ...body, phone: '***' })
     
     // Get current user - this will throw an error if headers are missing
-    const currentUser = await getUserFromRequest(request)
-    console.log('Current user:', currentUser)
+    let currentUser
+    try {
+      currentUser = await getUserFromRequest(request)
+      console.log('👤 Current user:', { id: currentUser.id, email: currentUser.email, role: currentUser.role })
+    } catch (authError) {
+      console.error('❌ Authentication failed:', authError)
+      return NextResponse.json(
+        { error: 'Authentication required', details: authError instanceof Error ? authError.message : 'Unknown auth error' },
+        { status: 401 }
+      )
+    }
     
     // Clean the data before validation
     const cleanedData = {
@@ -169,51 +243,64 @@ export async function POST(request: NextRequest) {
       }
     })
 
-    console.log('Cleaned data:', cleanedData)
+    console.log('🧹 Cleaned data:', cleanedData)
     
-    // Validate input
-    const validatedData = createBuyerSchema.parse(cleanedData)
-    console.log('Validated data:', validatedData)
-
-    // Insert into database with current user as owner
-    console.log('Inserting buyer with owner ID:', currentUser.id)
-    const newBuyer = await db.insert(buyers).values({
-      fullName: validatedData.fullName,
-      email: validatedData.email || null,
-      phone: validatedData.phone,
-      city: validatedData.city,
-      propertyType: validatedData.propertyType,
-      bhk: validatedData.bhk || null,
-      purpose: validatedData.purpose,
-      budgetMin: validatedData.budgetMin || null,
-      budgetMax: validatedData.budgetMax || null,
-      timeline: validatedData.timeline,
-      source: validatedData.source,
-      notes: validatedData.notes || null,
-      tags: validatedData.tags || [],
-      ownerId: currentUser.id, // This should be a UUID
-      status: 'New'
-    }).returning()
-
-    console.log('Buyer created successfully:', newBuyer[0])
-
-    // Log creation in history
     try {
-      await db.insert(buyerHistory).values({
-        buyerId: newBuyer[0].id,
-        changedBy: currentUser.id,
-        diff: { action: 'created', data: validatedData }
-      })
-      console.log('History logged successfully')
-    } catch (historyError) {
-      console.warn('Failed to log history:', historyError)
+      // Validate input
+      const validatedData = createBuyerSchema.parse(cleanedData)
+      console.log('✅ Data validation passed')
+
+      // Insert into database with current user as owner
+      console.log('💾 Inserting buyer with owner ID:', currentUser.id)
+      
+      const newBuyer = await db.insert(buyers).values({
+        fullName: validatedData.fullName,
+        email: validatedData.email || null,
+        phone: validatedData.phone,
+        city: validatedData.city,
+        propertyType: validatedData.propertyType,
+        bhk: validatedData.bhk || null,
+        purpose: validatedData.purpose,
+        budgetMin: validatedData.budgetMin || null,
+        budgetMax: validatedData.budgetMax || null,
+        timeline: validatedData.timeline,
+        source: validatedData.source,
+        notes: validatedData.notes || null,
+        tags: validatedData.tags || [],
+        ownerId: currentUser.id, // This should be a UUID
+        status: 'New'
+      }).returning()
+
+      console.log('✅ Buyer created successfully:', newBuyer[0]?.id)
+
+      // Log creation in history
+      try {
+        await db.insert(buyerHistory).values({
+          buyerId: newBuyer[0].id,
+          changedBy: currentUser.id,
+          diff: { action: 'created', data: validatedData }
+        })
+        console.log('📝 History logged successfully')
+      } catch (historyError) {
+        console.warn('⚠️ Failed to log history (non-critical):', historyError)
+      }
+
+      return NextResponse.json(newBuyer[0], { status: 201 })
+
+    } catch (dbError) {
+      console.error('💥 Database error creating buyer:', dbError)
+      return NextResponse.json(
+        { error: 'Failed to create buyer', details: dbError instanceof Error ? dbError.message : 'Database error' },
+        { status: 500 }
+      )
     }
 
-    return NextResponse.json(newBuyer[0], { status: 201 })
   } catch (error) {
-    console.error('Error creating buyer:', error)
+    console.error('💥 POST buyers error:', error)
+    console.error('Error stack:', error instanceof Error ? error.stack : 'No stack')
     
     if (error instanceof ZodError) {
+      console.error('❌ Validation error:', error.issues)
       return NextResponse.json(
         { error: 'Validation failed', details: error.issues },
         { status: 400 }
