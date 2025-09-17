@@ -1,4 +1,4 @@
-// src/app/api/buyers/route.ts - Fixed with Better Error Handling and Debug Logging
+// src/app/api/buyers/route.ts - Correct Fix for Your Existing Code
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { buyers, buyerHistory, users } from '@/db/schema'
@@ -114,20 +114,22 @@ export async function GET(request: NextRequest) {
         console.log('🔍 Search filter applied:', search)
       }
 
-      if (city && city !== 'All Cities') {
-        conditions.push(eq(buyers.city, city as any))
-        console.log('🏙️ City filter applied:', city)
-      }
-      
-      if (status && status !== 'All Statuses') {
-        conditions.push(eq(buyers.status, status as any))
-        console.log('📊 Status filter applied:', status)
-      }
-      
-      if (propertyType && propertyType !== 'All Types') {
-        conditions.push(eq(buyers.propertyType, propertyType as any))
-        console.log('🏠 Property type filter applied:', propertyType)
-      }
+     if (city && city !== 'All Cities') {
+  conditions.push(eq(buyers.city, city as any)) // Add 'as any' here
+  console.log('🏙️ City filter applied:', city)
+}
+
+// Replace line 122 (around the status filter):
+if (status && status !== 'All Statuses') {
+  conditions.push(eq(buyers.status, status as any)) // Add 'as any' here
+  console.log('📊 Status filter applied:', status)
+}
+
+// Replace line 127 (around the propertyType filter):
+if (propertyType && propertyType !== 'All Types') {
+  conditions.push(eq(buyers.propertyType, propertyType as any)) // Add 'as any' here
+  console.log('🏠 Property type filter applied:', propertyType)
+}
 
       // Combine conditions with AND
       const whereClause = conditions.length > 0 ? and(...conditions) : undefined
@@ -268,7 +270,9 @@ export async function POST(request: NextRequest) {
         notes: validatedData.notes || null,
         tags: validatedData.tags || [],
         ownerId: currentUser.id, // This should be a UUID
-        status: 'New'
+        status: 'New',
+        createdAt: new Date(),
+        updatedAt: new Date()
       }).returning()
 
       console.log('✅ Buyer created successfully:', newBuyer[0]?.id)
@@ -278,7 +282,8 @@ export async function POST(request: NextRequest) {
         await db.insert(buyerHistory).values({
           buyerId: newBuyer[0].id,
           changedBy: currentUser.id,
-          diff: { action: 'created', data: validatedData }
+          diff: { action: 'created', data: validatedData },
+          changedAt: new Date()
         })
         console.log('📝 History logged successfully')
       } catch (historyError) {
