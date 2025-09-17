@@ -1,4 +1,4 @@
-// src/app/admin/page.tsx - Enhanced with Better UX and Error Handling
+// src/app/admin/page.tsx - Fixed TypeScript Error Completely
 'use client'
 
 import { useAuth } from '@/components/auth/auth-context'
@@ -28,8 +28,11 @@ export default function AdminPage() {
   useEffect(() => {
     if (!loading && !user) {
       router.push('/login')
-    } else if (!loading && user && user.role !== 'admin') {
+      return
+    }
+    if (!loading && user && user.role !== 'admin') {
       router.push('/buyers')
+      return
     }
   }, [user, loading, router])
 
@@ -47,12 +50,17 @@ export default function AdminPage() {
     }
   }, [successMessage])
 
-  const fetchUsers = async () => {
+  // FIXED: Added explicit return type and return statement
+  const fetchUsers = async (): Promise<void> => {
     setIsLoading(true)
     setError('')
     
     try {
-      console.log('Fetching users...')
+      console.log('Fetching users with headers:', {
+        'x-user-email': user?.email,
+        'x-user-role': user?.role,
+        'x-user-id': user?.id
+      })
       
       const response = await fetch('/api/admin/users', {
         headers: {
@@ -62,27 +70,27 @@ export default function AdminPage() {
         }
       })
 
-      console.log('Response status:', response.status)
+      console.log('Fetch users response status:', response.status)
 
       if (response.ok) {
         const data = await response.json()
-        console.log('Users data:', data)
+        console.log('Users fetched successfully:', data)
         setUsers(data.users || [])
         setError('')
       } else {
         const errorData = await response.json()
-        console.error('API Error:', errorData)
+        console.error('Failed to fetch users:', errorData)
         setError(errorData.error || 'Failed to fetch users')
       }
     } catch (err) {
-      console.error('Network error:', err)
+      console.error('Network error fetching users:', err)
       setError('Network error - failed to load users')
     } finally {
       setIsLoading(false)
     }
   }
 
-  const updateUserRole = async (userId: string, newRole: 'user' | 'admin') => {
+  const updateUserRole = async (userId: string, newRole: 'user' | 'admin'): Promise<void> => {
     setActionLoading(`role-${userId}`)
     setError('')
     
@@ -119,7 +127,7 @@ export default function AdminPage() {
     }
   }
 
-  const toggleUserStatus = async (userId: string, isActive: boolean) => {
+  const toggleUserStatus = async (userId: string, isActive: boolean): Promise<void> => {
     setActionLoading(`status-${userId}`)
     setError('')
     
@@ -156,7 +164,7 @@ export default function AdminPage() {
     }
   }
 
-  const deleteUser = async (userId: string) => {
+  const deleteUser = async (userId: string): Promise<void> => {
     const userToDelete = users.find(u => u.id === userId)
     
     if (!confirm(`Are you sure you want to delete "${userToDelete?.name}"?\n\nThis will:\n• Delete the user account\n• Transfer their buyers to admin\n• This action cannot be undone`)) {
@@ -185,10 +193,10 @@ export default function AdminPage() {
         setUsers(prev => prev.filter(u => u.id !== userId))
         
         // Show success message with details
-        if (responseData.transferredBuyers > 0) {
-          setSuccessMessage(`User deleted successfully. ${responseData.transferredBuyers} buyers transferred to admin.`)
+        if (responseData.transferredBuyers && responseData.transferredBuyers > 0) {
+          setSuccessMessage(`User "${userToDelete?.name}" deleted successfully. ${responseData.transferredBuyers} buyers transferred to admin.`)
         } else {
-          setSuccessMessage('User deleted successfully.')
+          setSuccessMessage(`User "${userToDelete?.name}" deleted successfully.`)
         }
       } else {
         setError(responseData.error || 'Failed to delete user')
@@ -201,10 +209,19 @@ export default function AdminPage() {
     }
   }
 
+  const refreshUsers = (): void => {
+    setError('')
+    setSuccessMessage('')
+    fetchUsers()
+  }
+
   if (loading || !user) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <div className="text-lg">Loading...</div>
+        <div className="flex flex-col items-center space-y-4">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
+          <div className="text-lg text-gray-600">Loading...</div>
+        </div>
       </div>
     )
   }
@@ -212,6 +229,7 @@ export default function AdminPage() {
   if (user.role !== 'admin') {
     return (
       <div className="text-center py-12">
+        <div className="text-6xl mb-4">🚫</div>
         <div className="text-red-600 text-lg mb-4">Access Denied</div>
         <p className="text-gray-600 mb-4">You need admin privileges to access this page.</p>
         <Link href="/buyers" className="btn btn-primary">
@@ -224,7 +242,7 @@ export default function AdminPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Admin Panel</h1>
           <p className="text-gray-600 mt-1">
@@ -244,11 +262,19 @@ export default function AdminPage() {
       {/* Success Message */}
       {successMessage && (
         <div className="card p-4 border-l-4 border-green-400 bg-green-50">
-          <div className="flex items-center">
-            <span className="text-green-400 mr-2">✅</span>
-            <div className="text-green-800">
-              <strong>Success:</strong> {successMessage}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center">
+              <span className="text-green-400 mr-2">✅</span>
+              <div className="text-green-800">
+                <strong>Success:</strong> {successMessage}
+              </div>
             </div>
+            <button 
+              onClick={() => setSuccessMessage('')}
+              className="text-green-600 hover:text-green-800"
+            >
+              ✕
+            </button>
           </div>
         </div>
       )}
@@ -263,15 +289,20 @@ export default function AdminPage() {
                 <strong>Error:</strong> {error}
               </div>
             </div>
-            <button 
-              onClick={() => {
-                setError('')
-                fetchUsers()
-              }}
-              className="text-sm text-red-600 hover:text-red-800 underline"
-            >
-              Retry
-            </button>
+            <div className="flex items-center space-x-2">
+              <button 
+                onClick={refreshUsers}
+                className="text-sm text-red-600 hover:text-red-800 underline"
+              >
+                Retry
+              </button>
+              <button 
+                onClick={() => setError('')}
+                className="text-red-600 hover:text-red-800"
+              >
+                ✕
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -322,7 +353,7 @@ export default function AdminPage() {
       {/* User Management Table */}
       <div className="card">
         <div className="p-6 border-b border-gray-200">
-          <div className="flex justify-between items-center">
+          <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
             <div>
               <h2 className="text-xl font-semibold text-gray-900">User Management</h2>
               <p className="text-gray-600 text-sm mt-1">
@@ -330,11 +361,21 @@ export default function AdminPage() {
               </p>
             </div>
             <button
-              onClick={fetchUsers}
+              onClick={refreshUsers}
               disabled={isLoading}
               className="btn btn-secondary text-sm"
             >
-              {isLoading ? 'Refreshing...' : '🔄 Refresh'}
+              {isLoading ? (
+                <span className="flex items-center">
+                  <svg className="animate-spin -ml-1 mr-2 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  Refreshing...
+                </span>
+              ) : (
+                '🔄 Refresh'
+              )}
             </button>
           </div>
         </div>

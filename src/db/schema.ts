@@ -1,4 +1,4 @@
-// src/db/schema.ts - Add Users Table
+// src/db/schema.ts - Updated with Nullable ownerId
 import { pgTable, uuid, varchar, text, integer, timestamp, jsonb, pgEnum, boolean } from 'drizzle-orm/pg-core';
 import { createInsertSchema, createSelectSchema } from 'drizzle-zod';
 import { z } from 'zod';
@@ -13,19 +13,19 @@ export const sourceEnum = pgEnum('source', ['Website', 'Referral', 'Walk-in', 'C
 export const statusEnum = pgEnum('status', ['New', 'Qualified', 'Contacted', 'Visited', 'Negotiation', 'Converted', 'Dropped']);
 export const userRoleEnum = pgEnum('user_role', ['user', 'admin']);
 
-// Users Table - NEW
+// Users Table
 export const users = pgTable('users', {
   id: uuid('id').primaryKey().defaultRandom(),
   name: varchar('name', { length: 100 }).notNull(),
   email: varchar('email', { length: 255 }).notNull().unique(),
-  password: varchar('password', { length: 255 }).notNull(), // In real app, this would be hashed
+  password: varchar('password', { length: 255 }).notNull(),
   role: userRoleEnum('role').notNull().default('user'),
   isActive: boolean('is_active').notNull().default(true),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
 
-// Buyers Table - Updated to reference users
+// Buyers Table - Updated with nullable ownerId
 export const buyers = pgTable('buyers', {
   id: uuid('id').primaryKey().defaultRandom(),
   fullName: varchar('full_name', { length: 80 }).notNull(),
@@ -42,15 +42,18 @@ export const buyers = pgTable('buyers', {
   status: statusEnum('status').notNull().default('New'),
   notes: text('notes'),
   tags: jsonb('tags').$type<string[]>().default([]),
-  ownerId: uuid('owner_id').notNull().references(() => users.id, { onDelete: 'cascade' }), // Updated to reference users
+  // FIXED: Made ownerId nullable - removed .notNull() and changed onDelete strategy
+  ownerId: uuid('owner_id').references(() => users.id, { onDelete: 'set null' }),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
 
+// Buyer History Table - Updated with nullable changedBy
 export const buyerHistory = pgTable('buyer_history', {
   id: uuid('id').primaryKey().defaultRandom(),
   buyerId: uuid('buyer_id').notNull().references(() => buyers.id, { onDelete: 'cascade' }),
-  changedBy: uuid('changed_by').notNull().references(() => users.id), // Updated to reference users
+  // FIXED: Made changedBy nullable to handle deleted users
+  changedBy: uuid('changed_by').references(() => users.id, { onDelete: 'set null' }),
   changedAt: timestamp('changed_at').defaultNow().notNull(),
   diff: jsonb('diff').notNull(),
 });

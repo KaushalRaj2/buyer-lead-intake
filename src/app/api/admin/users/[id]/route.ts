@@ -1,7 +1,7 @@
-// src/app/api/admin/users/[id]/route.ts - Fixed Delete with Proper Cascade Handling
+// src/app/api/admin/users/[id]/route.ts - Simplified with Database Cascade
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
-import { users, buyers } from '@/db/schema'
+import { users, buyers, buyerHistory } from '@/db/schema'
 import { eq, and, ne } from 'drizzle-orm'
 
 // Get current user from headers
@@ -96,7 +96,7 @@ export async function PUT(
     const updates: {
       role?: 'user' | 'admin'
       isActive?: boolean
-      updatedAt?: Date
+      updatedAt: Date
     } = {
       updatedAt: new Date()
     }
@@ -160,7 +160,7 @@ export async function PUT(
   }
 }
 
-// DELETE /api/admin/users/[id] - Delete user with proper cascade handling
+// DELETE /api/admin/users/[id] - Simplified with Database Cascade
 export async function DELETE(
   request: NextRequest,
   { params }: { params: { id: string } }
@@ -189,8 +189,8 @@ export async function DELETE(
       )
     }
 
-    // 1. Check if user exists
-    console.log('Step 1: Checking if user exists...')
+    // 1. Check if user exists and get associated buyers count
+    console.log('Step 1: Checking user and counting buyers...')
     const existingUser = await db.select({
       id: users.id,
       name: users.name,
@@ -211,20 +211,18 @@ export async function DELETE(
     const userToDelete = existingUser[0]
     console.log('Found user to delete:', userToDelete)
 
-    // 2. Find associated buyers
-    console.log('Step 2: Finding associated buyers...')
+    // Count associated buyers before deletion
     const associatedBuyers = await db.select({
       id: buyers.id,
-      fullName: buyers.fullName,
-      ownerId: buyers.ownerId
+      fullName: buyers.fullName
     }).from(buyers)
     .where(eq(buyers.ownerId, targetUserId))
 
     console.log(`Found ${associatedBuyers.length} associated buyers`)
 
+    // 2. Option A: Transfer buyers to another admin (recommended)
     if (associatedBuyers.length > 0) {
-      // 3. Find an admin user to transfer buyers to
-      console.log('Step 3: Finding admin user to transfer buyers to...')
+      console.log('Step 2: Finding admin to transfer buyers to...')
       const adminUsers = await db.select({
         id: users.id,
         name: users.name
@@ -232,45 +230,32 @@ export async function DELETE(
       .where(
         and(
           eq(users.role, 'admin'),
-          ne(users.id, targetUserId), // Not the user being deleted
-          eq(users.isActive, true)    // Active admin
+          ne(users.id, targetUserId),
+          eq(users.isActive, true)
         )
       )
       .limit(1)
 
       if (adminUsers.length > 0) {
         const adminRecipient = adminUsers[0]
-        console.log(`Transferring ${associatedBuyers.length} buyers to admin: ${adminRecipient.name}`)
+        console.log(`Transferring buyers to admin: ${adminRecipient.name}`)
         
-        // Transfer buyers to the admin
-        const transferResult = await db
+        await db
           .update(buyers)
           .set({ 
             ownerId: adminRecipient.id,
             updatedAt: new Date()
           })
           .where(eq(buyers.ownerId, targetUserId))
-          .returning({ id: buyers.id })
 
-        console.log(`Successfully transferred ${transferResult.length} buyers`)
+        console.log(`Transferred ${associatedBuyers.length} buyers to ${adminRecipient.name}`)
       } else {
-        // No other admins available, set ownerId to null
-        console.log('No other admins available, setting ownerId to null')
-        const nullifyResult = await db
-          .update(buyers)
-          .set({ 
-            ownerId: null,
-            updatedAt: new Date()
-          })
-          .where(eq(buyers.ownerId, targetUserId))
-          .returning({ id: buyers.id })
-
-        console.log(`Set ownerId to null for ${nullifyResult.length} buyers`)
+        console.log('No other admins found - buyers will be orphaned (ownerId set to null)')
       }
     }
 
-    // 4. Delete the user
-    console.log('Step 4: Deleting user from database...')
+    // 3. Delete the user - database will handle cascading via "set null"
+    console.log('Step 3: Deleting user from database...')
     const deletedUser = await db
       .delete(users)
       .where(eq(users.id, targetUserId))
@@ -297,7 +282,7 @@ export async function DELETE(
       deletedUser: deletedUser[0],
       transferredBuyers: associatedBuyers.length,
       message: associatedBuyers.length > 0 
-        ? `User deleted and ${associatedBuyers.length} buyers transferred to admin`
+        ? `User deleted and ${associatedBuyers.length} buyers transferred`
         : 'User deleted successfully'
     })
 
@@ -307,25 +292,18 @@ export async function DELETE(
     
     // Provide more specific error messages
     if (error instanceof Error) {
-      if (error.message.includes('foreign key constraint')) {
+      console.error('Specific error message:', error.message)
+      
+      if (error.message.includes('violates foreign key constraint')) {
         return NextResponse.json(
-          { error: 'Cannot delete user - they have associated data that cannot be transferred' },
+          { error: 'Cannot delete user due to database constraints' },
           { status: 409 }
         )
       }
-      if (error.message.includes('not found')) {
-        return NextResponse.json(
-          { error: 'User not found' },
-          { status: 404 }
-        )
-      }
-      
-      // Log the actual error for debugging
-      console.error('Specific error message:', error.message)
     }
 
     return NextResponse.json(
-      { error: 'Failed to delete user. Please check server logs for details.' },
+      { error: 'Failed to delete user. Please try again.' },
       { status: 500 }
     )
   }
