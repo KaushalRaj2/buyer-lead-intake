@@ -1,9 +1,9 @@
-// src/app/admin/page.tsx - Fixed TypeScript Error Completely
+// src/app/admin/page.tsx - Fixed useEffect dependency
 'use client'
 
 import { useAuth } from '@/components/auth/auth-context'
 import { useRouter } from 'next/navigation'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
 
 interface User {
@@ -36,22 +36,8 @@ export default function AdminPage() {
     }
   }, [user, loading, router])
 
-  useEffect(() => {
-    if (user && user.role === 'admin') {
-      fetchUsers()
-    }
-  }, [user])
-
-  // Clear success message after 5 seconds
-  useEffect(() => {
-    if (successMessage) {
-      const timer = setTimeout(() => setSuccessMessage(''), 5000)
-      return () => clearTimeout(timer)
-    }
-  }, [successMessage])
-
-  // FIXED: Added explicit return type and return statement
-  const fetchUsers = async (): Promise<void> => {
+  // FIXED: Use useCallback to memoize fetchUsers
+  const fetchUsers = useCallback(async (): Promise<void> => {
     setIsLoading(true)
     setError('')
     
@@ -88,7 +74,22 @@ export default function AdminPage() {
     } finally {
       setIsLoading(false)
     }
-  }
+  }, [user?.email, user?.role, user?.id])
+
+  useEffect(() => {
+    if (user && user.role === 'admin') {
+      fetchUsers()
+    }
+  }, [user, fetchUsers])
+
+  // Rest of your component remains the same...
+  // Clear success message after 5 seconds
+  useEffect(() => {
+    if (successMessage) {
+      const timer = setTimeout(() => setSuccessMessage(''), 5000)
+      return () => clearTimeout(timer)
+    }
+  }, [successMessage])
 
   const updateUserRole = async (userId: string, newRole: 'user' | 'admin'): Promise<void> => {
     setActionLoading(`role-${userId}`)

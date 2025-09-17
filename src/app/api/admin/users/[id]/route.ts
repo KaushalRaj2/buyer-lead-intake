@@ -1,7 +1,7 @@
-// src/app/api/admin/users/[id]/route.ts - Simplified with Database Cascade
+// src/app/api/admin/users/[id]/route.ts - Fixed unused import warning
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
-import { users, buyers, buyerHistory } from '@/db/schema'
+import { users, buyers } from '@/db/schema'
 import { eq, and, ne } from 'drizzle-orm'
 
 // Get current user from headers

@@ -1,4 +1,4 @@
-// src/app/login/page.tsx - Fixed with Better Padding and Spacing
+// src/app/login/page.tsx - Fixed React unescaped entities
 'use client'
 
 import { useState, useEffect } from 'react'
@@ -246,10 +246,10 @@ export default function LoginPage() {
           </form>
         </div>
 
-        {/* Registration Link */}
+        {/* Registration Link - FIXED: Replaced apostrophe with &apos; */}
         <div className="text-center">
           <p className="text-sm text-gray-600">
-            Don't have an account?{' '}
+            Don&apos;t have an account?{' '}
             <Link 
               href="/register" 
               className="font-medium text-indigo-600 hover:text-indigo-500 transition-colors duration-200"
